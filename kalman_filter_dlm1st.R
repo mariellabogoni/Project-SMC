@@ -53,6 +53,7 @@ f<-NULL     #mean of dist Yt|yt-1
 Q<-NULL     #var of dist Yt|yt-1
 m<-NULL     #mean of dist Xt|y1:t
 C<-NULL     #var of dist Xt|y1:t
+loglik<-NULL
 
 #time t=1
 a[1]<-0
@@ -61,6 +62,7 @@ f[1]<-a[1]
 Q[1]<-R[1] + V
 m[1]<-a[1] + (R[1]/Q[1])*(y[1]-f[1])
 C[1]<-R[1] - (R[1]^2)/Q[1]
+loglik[1]<- dnorm(y[1], f[1], sqrt(Q[1]), log = TRUE)
 
 for (t in 2:T) {
    a[t]<-m[t-1]
@@ -69,6 +71,7 @@ for (t in 2:T) {
    Q[t]<-R[t] + V
    m[t]<-a[t] + (R[t]/Q[t])*(y[t]-f[t])
    C[t]<-R[t] - (R[t]^2)/Q[t]
+    loglik[t]<- loglik[t-1] + dnorm(y[t], f[t], sqrt(Q[t]), log = TRUE)
 }
 
 #plotting the filtered states
@@ -78,12 +81,6 @@ ggplot(data = as.data.frame(cbind(t=c(1:T), x=x_true, y=m)))+
   scale_colour_manual(values = c("EST"="red","TRUE"="black"),name = '', 
                       labels = c("Estimated States","True States"))
 
-#plotting the preditive of observations
-ggplot(data = as.data.frame(cbind(t=c(1:T), x=y, y=f)))+
-  geom_point(mapping = aes(x=t,y=y, colour = "EST"))+
-  geom_point(mapping = aes(x=t,y=x, colour = "TRUE"))+
-  scale_colour_manual(values = c("EST"="red","TRUE"="black"),name = '', 
-                      labels = c("Estimated Observations","True Observations"))
 
 
 
