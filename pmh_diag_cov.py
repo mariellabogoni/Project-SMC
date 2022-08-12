@@ -31,7 +31,6 @@ os.chdir('C:\\Users\\Mariella\\Documents\\sequentialMonteCarlo\\dados_tfidf')
 year=list(np.arange(1980,2021,1))
 
 T=len(year)
-p=1000   #dim of beta
 y=[]
 S=[]     #sparse matrices of each time t
 words=[]
@@ -39,19 +38,17 @@ words=[]
 for file in year:
         data= pd.read_csv("y_epu_year_"+str(file)+".csv")
         data.columns=["index","y"]
-        y.append(np.array(data.y[0:5000]))
+        y.append(np.array(data.y))
         
         my_tar = tarfile.open("x_sparsedata_year_"+str(file)+".tar")
         my_tar.extract('x_sparse.npz')
         
         aux = sc.io.mmread("x_sparse.npz")
-        aux=aux.tocsr()
-        palavras=np.random.choice(np.shape(aux)[1],size=p, replace=False)
-        S.append(aux[0:5000,palavras])
+        S.append(aux)
 
         my_tar.extract("col_names.csv")
         colnames=pd.read_csv("col_names.csv")
-        words.append(np.array(colnames.V1[palavras]))
+        words.append(np.array(colnames.V1))
      
         my_tar.close()
         
@@ -59,7 +56,7 @@ for file in year:
 nt=np.repeat(0,T)
 for i in range(T):  
     nt[i] = len(y[i]) 
-
+p=np.shape(S[0])[1]
 x_cov=S
 phi=0.6
 
