@@ -44,7 +44,7 @@ for file in year:
         my_tar.extract('x_sparse.npz')
         
         aux = sc.io.mmread("x_sparse.npz")
-        S.append(aux)
+        S.append(aux.tocsr())
 
         my_tar.extract("col_names.csv")
         colnames=pd.read_csv("col_names.csv")
