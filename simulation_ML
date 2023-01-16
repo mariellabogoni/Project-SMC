@@ -1,0 +1,175 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Dec 26 15:52:09 2022
+
+@author: Mariella
+"""
+from matplotlib import pyplot as plt
+import numpy as np
+import seaborn as sns     
+from scipy.sparse import csr_matrix
+from scipy import optimize
+import time
+from scipy.special import expit
+import joypy
+import pandas as pd
+
+import particles
+from particles import distributions as dists
+from particles import state_space_models as ssm
+from particles import mcmc
+from particles import collectors as col
+import os
+
+
+###### Input data: covariate matrix  (assuming nt observation at each time t)
+
+np.random.seed(10)
+p = 100  #size of beta    
+T = 5
+t=range(T)
+nt=np.random.poisson(lam = 500 , size=T)+1
+
+
+X=[]
+S=[]
+
+
+for i in range(T):
+    X_aux=np.zeros((nt[i],(p-1)))  #allocating the matrix
+    tf=np.zeros((nt[i],(p-1)))
+    ones_vector = np.ones((nt[i],1))
+    for j in range(nt[i]): 
+        X_aux[j,:] = np.random.binomial(n=5,p=0.05,size=(p-1))   #np.random.normal(loc=0.,scale=1.,size=(p-1))
+        tf[j,:]=X_aux[j,:]/p
+    if 0 in np.sum(X_aux,axis=0) : 
+        coll =[np.where(np.sum(X_aux,axis=0)==0)]
+        for z in coll:
+            row = np.random.choice(range(nt[i]), size = 1)
+            X_aux[row,z]=1
+    X.append(np.hstack((ones_vector,tf)))
+    S.append(csr_matrix(X[i]))
+
+
+true_sigmaX0 = np.repeat(2,p)
+true_sigmaX = np.repeat(5,p)
+true_mu = np.repeat(2,p)
+
+x_cov=S
+
+
+phi=0.6
+#defining the class of the model
+class myModel(ssm.StateSpaceModel):
+    
+    def PX0(self): 
+
+        return dists.MvNormal(loc = self.mu0, scale=1,cov= np.diag(self.sigmaX0) )
+             
+    def PX(self, t, xpast):
+        
+        N,d = xpast.shape
+        pi_prob=[]
+        z=[]
+        p=0.9
+       
+        #print("N, d", N,d)
+        for i in range(d): 
+            pi_prob.append(p*np.exp((-1/(2*self.sigmaX[i]))*np.power(xpast[:, i],2)))
+            z.append(np.random.binomial(n=1,p=1-pi_prob[i])) 
+            #print("Lenght: ", np.shape(pi_prob[i]))
+        #print("Lenght prob: ", len(pi_prob))
+        z=np.array(z)
+        #print("Tamanho Z (a): ", np.shape(z))
+        #print("Soma:", np.sum(z))
+        
+        return dists.LinearD(dists.MvNormal(loc = phi*xpast, scale=1, cov = np.diag(self.sigmaX)),
+                             a = z.T)
+    
+    def PY(self, t, xpast, x):
+        prob = expit(x_cov[t].dot(x.T))    #inverse of logit function
+        #print("Probabilidade: ", prob)
+        #print("Shape: ", np.shape(prob))
+        return dists.IndepProdGen([dists.Binomial(n=1, p=prob[i,:]) for i in range(nt[t])])
+    
+def smoothing_trajectories(mu0,s20,s2,N):
+    fk = ssm.Bootstrap(ssm=myModel(mu0=mu0, sigmaX0=s20, sigmaX=s2), data=y)
+    pf = particles.SMC(fk=fk, N=N, qmc=False, store_history=True)
+    pf.run()
+    paths = pf.hist.backward_sampling(N, return_ar=False,
+                                            linear_cost=False)
+    #print('Acceptance rate (FFBS-reject): %.3f' % ar)
+    return paths
+
+
+# EM
+
+class funcLogLike(object):
+    
+    def __init__(self, paths):
+        self.lls = []
+        self.paths = paths
+    def __call__(self, par):
+        
+        
+        #p=100 #int(np.shape(par)/3)
+        modelo=myModel(mu0=par[0:p], sigmaX0=par[p:2*p], sigmaX=par[2*p:3*p])
+        l1 = np.sum([np.sum(modelo.PY(t, self.paths[t-1],self.paths[t]).logpdf(y[t])) for t in np.arange(1,T-1)])
+        l2 = np.sum([np.sum(modelo.PX(t, self.paths[t-1]).logpdf(self.paths[t])) for t in np.arange(1,T-1) ] )
+        l3 = np.sum(modelo.PX0().logpdf(self.paths[0]))
+            
+        #self.lls.append(pf.logLt)
+        return -(l1+l2+l3)
+
+
+def EM_step(mu0, s20, s2, M):
+    paths = smoothing_trajectories(mu0, s20, s2, M)
+    
+    #p=np.shape(mu0)[0]
+    func=funcLogLike(paths)   
+    init=np.concatenate([np.array(mu0),np.array(s20),np.array(s2)])
+    
+    res_opt = optimize.minimize(fun=func, x0=init, method="BFGS",
+                                options={'maxiter': 1000, 'tol': 1e-2})
+    new_mu0 = res_opt.x[0:p]
+    new_s20 = res_opt.x[p:2*p]
+    new_s2  = res_opt.x[2*p:3*p]
+    
+    return new_mu0, new_s20, new_s2
+
+def EM(mu0, s20, s2, M, maxiter=100, tol=1e-2):
+    mu0s, s20s, s2s, lls = [mu0], [s20], [s2], []
+    iter=0
+    while iter < maxiter + 1:
+        print("Iter ", iter)
+        new_mu0, new_s20, new_s2 = EM_step(mu0s[-1], s20s[-1],s2s[-1], M)
+        mu0s.append(new_mu0)
+        s20s.append(new_s20)
+        s2s.append(new_s2)
+
+        err = np.mean(np.abs(mu0s[-1]-mu0s[-2]) + np.abs(s20s[-1]-s20s[-2])+np.abs(s2s[-1] - s2s[-2]))
+        if err < tol:
+            print("Convergiu!")
+            break
+        iter+=1
+    return {'mu0s':mu0s, 's20s': s20s, 's2s': s2s, 'lls': lls}    
+    
+
+
+
+########## Generating the data    
+model = myModel(mu0 = true_mu, sigmaX0 = true_sigmaX0 , sigmaX=true_sigmaX, nt=nt)
+x_true, y = model.simulate(T)
+x_true = np.array(x_true).squeeze()    
+
+
+########## Expectation and Maximization
+
+
+par_mu0     = np.repeat(0, p)  
+par_sigmaX0 = np.repeat(1, p) 
+par_sigmaX  = np.repeat(1, p) 
+
+print('EM algorithm')
+em_results = EM(par_mu0, par_sigmaX0, par_sigmaX, M=1000, tol=1e-3)
+
