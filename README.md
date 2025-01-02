@@ -1,2 +1,2 @@
-# sequentialMonteCarlo
-Some codes of Sequential Monte Carlos algorithms.
+# Project-SMC
+Some codes of a research project on Sequential Monte Carlos algorithms.
