@@ -77,19 +77,13 @@ class myModel(ssm.StateSpaceModel):
         for i in range(d): 
             pi_prob.append(p*np.exp((-1/(2*self.sigmaX[i]))*np.power(xpast[:, i],2)))
             z.append(np.random.binomial(n=1,p=1-pi_prob[i])) 
-            #print("Lenght: ", np.shape(pi_prob[i]))
-        #print("Lenght prob: ", len(pi_prob))
-        z=np.array(z)
-        #print("Tamanho Z (a): ", np.shape(z))
-        #print("Soma:", np.sum(z))
         
+        z=np.array(z)
         return dists.LinearD(dists.MvNormal(loc = phi*xpast, scale=1, cov = np.diag(self.sigmaX)),
                              a = z.T)
     
     def PY(self, t, xpast, x):
         prob = expit(x_cov[t].dot(x.T))    #inverse of logit function
-        #print("Probabilidade: ", prob)
-        #print("Shape: ", np.shape(prob))
         return dists.IndepProdGen([dists.Binomial(n=1, p=prob[i,:]) for i in range(nt[t])])
     
 def smoothing_trajectories(mu0,s20,s2,N):
@@ -98,7 +92,6 @@ def smoothing_trajectories(mu0,s20,s2,N):
     pf.run()
     paths = pf.hist.backward_sampling(N, return_ar=False,
                                             linear_cost=False)
-    #print('Acceptance rate (FFBS-reject): %.3f' % ar)
     return paths
 
 
@@ -111,14 +104,10 @@ class funcLogLike(object):
         self.paths = paths
     def __call__(self, par):
         
-        
-        #p=100 #int(np.shape(par)/3)
         modelo=myModel(mu0=par[0:p], sigmaX0=par[p:2*p], sigmaX=par[2*p:3*p])
         l1 = np.sum([np.sum(modelo.PY(t, self.paths[t-1],self.paths[t]).logpdf(y[t])) for t in np.arange(1,T-1)])
         l2 = np.sum([np.sum(modelo.PX(t, self.paths[t-1]).logpdf(self.paths[t])) for t in np.arange(1,T-1) ] )
         l3 = np.sum(modelo.PX0().logpdf(self.paths[0]))
-            
-        #self.lls.append(pf.logLt)
         return -(l1+l2+l3)
 
 
